@@ -56,6 +56,55 @@ ProjectSettingsInteractor::ProjectSettingsInteractor(
     m_mdb(mdb)
 {}
 
+void ProjectSettingsInteractor::set_color_persistence(
+    ColorLoadCallback load_callback,
+    ColorSaveCallback save_callback
+)
+{
+    m_color_load_callback = std::move(load_callback);
+    m_color_save_callback = std::move(save_callback);
+}
+
+void ProjectSettingsInteractor::restore_persisted_colors(
+    Domain::SelectionId config_container_id
+)
+{
+    if (!m_color_load_callback)
+        return;
+
+    for (const auto& [project_id, project] : m_workbench.projects()) {
+        const Domain::ConfigContainer* cc = project.find_config_container(config_container_id);
+        if (!cc)
+            continue;
+
+        if (cc->print_technology() != Domain::PrinterTechnology::FFF)
+            return;
+
+        const auto persisted_colors = m_color_load_callback(cc->selected_preset().printer.id);
+        if (!persisted_colors)
+            return;
+
+        auto colors =
+            cc->project_settings().items.opt("extruder_colour").get<std::vector<std::string>>();
+        Domain::Preset::SelectedPresetConfigPack preset_config_pack(cc->selected_preset());
+        colors.resize(preset_config_pack.filament_size());
+
+        const size_t count = std::min(colors.size(), persisted_colors->size());
+        for (size_t slot = 0; slot < count; ++slot) {
+            if (!(*persisted_colors)[slot].empty())
+                colors[slot] = (*persisted_colors)[slot];
+        }
+
+        for (size_t slot = 0; slot < colors.size(); ++slot) {
+            if (colors[slot].empty())
+                colors[slot] = resolve_auto_color(project_id, config_container_id, slot);
+        }
+
+        store_and_notify(config_container_id, std::move(colors));
+        return;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -107,6 +156,7 @@ void ProjectSettingsInteractor::set_color_from_user(
         ASSERT(!color.empty());
         colors[slot] = std::move(color);
         store_and_notify(config_container_id, std::move(colors));
+        persist_colors(config_container_id);
         return;
     }
 }
@@ -136,6 +186,7 @@ void ProjectSettingsInteractor::set_colors_from_connect(
         }
 
         store_and_notify(config_container_id, std::move(colors));
+        persist_colors(config_container_id);
         return;
     }
 }
@@ -273,6 +324,16 @@ void ProjectSettingsInteractor::load_and_reconcile(
     Domain::Preset::SelectedPresetConfigPack preset_config_pack(cc->selected_preset());
 
     colors.resize(preset_config_pack.filament_size());
+    if (m_color_load_callback) {
+        const auto persisted_colors = m_color_load_callback(cc->selected_preset().printer.id);
+        if (persisted_colors) {
+            const size_t count = std::min(colors.size(), persisted_colors->size());
+            for (size_t slot = 0; slot < count; ++slot) {
+                if (colors[slot].empty() && !(*persisted_colors)[slot].empty())
+                    colors[slot] = (*persisted_colors)[slot];
+            }
+        }
+    }
     for (size_t slot = 0; slot < colors.size(); ++slot) {
         if (colors[slot].empty()) {
             colors[slot] = resolve_auto_color(project_id, config_container_id, slot);
@@ -283,6 +344,27 @@ void ProjectSettingsInteractor::load_and_reconcile(
     // UI listeners rely on this notification as their sole source of color
     // updates (e.g. after preset switches or 3MF loading).
     store_and_notify(config_container_id, std::move(colors));
+}
+
+void ProjectSettingsInteractor::persist_colors(Domain::SelectionId config_container_id)
+{
+    if (!m_color_save_callback)
+        return;
+
+    for (const auto& [_, project] : m_workbench.projects()) {
+        const Domain::ConfigContainer* cc = project.find_config_container(config_container_id);
+        if (!cc)
+            continue;
+
+        if (cc->print_technology() != Domain::PrinterTechnology::FFF)
+            return;
+
+        m_color_save_callback(
+            cc->selected_preset().printer.id,
+            cc->project_settings().items.opt("extruder_colour").get<std::vector<std::string>>()
+        );
+        return;
+    }
 }
 
 void ProjectSettingsInteractor::store_and_notify(
