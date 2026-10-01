@@ -3,6 +3,21 @@
 
 include(Boost)
 
+if(APPLE)
+    # Recent Apple Clang SDKs already declare these standard-library types.
+    # Avoid range-v3's legacy redeclarations of them.
+    add_compile_definitions(META_NO_STD_FORWARD_DECLARATIONS)
+    # The Command Line Tools and Xcode SDK headers may disagree on availability
+    # annotations while targeting an older macOS release.
+    add_compile_options(-Wno-error=unguarded-availability-new)
+
+    foreach(prefix IN LISTS CMAKE_PREFIX_PATH)
+        if(IS_DIRECTORY "${prefix}/include")
+            include_directories(BEFORE SYSTEM "${prefix}/include")
+        endif()
+    endforeach()
+endif()
+
 if(SLIC3R_STATIC)
     set(TBB_STATIC 1)
 endif()
