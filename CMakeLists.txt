@@ -291,6 +291,92 @@ include(CheckAndPrintSummary)
 add_subdirectory(bundled_deps)
 add_subdirectory(src)
 
+if(APPLE AND SLIC3R_GUI)
+    # Build the app bundle from the launcher, optional crash handler, metadata, and resources.
+    function(slic3r_add_macos_bundle_target _target_name _component _output_dir _expected_config)
+        set(_bundle_name "${SLIC3R_APP_KEY}.app")
+        set(_bundle_contents "${_bundle_name}/Contents")
+        set(_bundle_resources "${_bundle_contents}/Resources")
+
+        # Search the dependency prefixes and their library directories for non-system dylibs.
+        set(_bundle_search_dirs ${CMAKE_PREFIX_PATH})
+        foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+            list(APPEND _bundle_search_dirs
+                "${_prefix}/lib"
+                "${_prefix}/lib64"
+                "${_prefix}/Frameworks"
+            )
+        endforeach()
+        list(REMOVE_DUPLICATES _bundle_search_dirs)
+
+        # Keep app packaging opt-in and isolate each configuration's output.
+        install(CODE
+            "file(REMOVE_RECURSE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${_bundle_name}\")"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+        install(PROGRAMS "$<TARGET_FILE:slic3r-app-launcher>"
+            DESTINATION "${_bundle_contents}/MacOS"
+            RENAME "${SLIC3R_APP_KEY}"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+        if(TARGET sentry_crashpad::crashpad_handler)
+            install(PROGRAMS "$<TARGET_FILE:sentry_crashpad::crashpad_handler>"
+                DESTINATION "${_bundle_contents}/MacOS"
+                COMPONENT "${_component}"
+                EXCLUDE_FROM_ALL
+            )
+        endif()
+        install(FILES "${CMAKE_BINARY_DIR}/src/Info.plist"
+            DESTINATION "${_bundle_contents}"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+        install(DIRECTORY "${SLIC3R_RESOURCES_DIR}/"
+            DESTINATION "${_bundle_resources}"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+        install(FILES "${SLIC3R_RESOURCES_DIR}/icons/PrusaSlicer.icns"
+            DESTINATION "${_bundle_resources}"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+        install(CODE
+            "set(MACOS_RELEASE_APP_KEY \"${SLIC3R_APP_KEY}\")
+             set(MACOS_RELEASE_BUNDLE_SEARCH_DIRS [==[${_bundle_search_dirs}]==])"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+        # Fix dylib paths and ad-hoc sign the bundle after fixup modifies its executable.
+        install(SCRIPT "${CMAKE_SOURCE_DIR}/cmake/PackageMacOSBundle.cmake"
+            COMPONENT "${_component}"
+            EXCLUDE_FROM_ALL
+        )
+
+        # Require a matching build configuration, then install this component into its own output directory.
+        add_custom_target(${_target_name}
+            COMMAND "${CMAKE_COMMAND}"
+                "-DMACOS_EXPECTED_CONFIGURATION=${_expected_config}"
+                "-DMACOS_REQUESTED_CONFIGURATION=$<CONFIG>"
+                "-DMACOS_CONFIGURATION_TYPES=${CMAKE_CONFIGURATION_TYPES}"
+                "-DMACOS_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/CheckMacOSBuildConfig.cmake"
+            COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}"
+                --config "$<CONFIG>"
+                --prefix "${CMAKE_BINARY_DIR}/${_output_dir}"
+                --component "${_component}"
+            DEPENDS slic3r-app-launcher
+            COMMENT "Assembling a self-contained macOS ${_expected_config} app bundle"
+            VERBATIM
+        )
+    endfunction()
+
+    slic3r_add_macos_bundle_target(macos-release MacOSRelease macos-release Release)
+    slic3r_add_macos_bundle_target(macos-debug MacOSDebug macos-debug Debug)
+endif()
+
 if(SLIC3R_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

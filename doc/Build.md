@@ -8,8 +8,12 @@ These are the build steps for Windows, MacOS and Linux. Depending on your hardwa
  - `CMake`
  - `git`.
 ### MacOS
+- [Xcode](https://developer.apple.com/xcode/) and its Command Line Tools.
+- [Homebrew](https://brew.sh) to install the required build dependencies.
+
 ```bash
-brew update && brew install automake cmake git gettext libtool texinfo
+xcode-select --install
+brew update && brew install automake cmake gettext git libomp libtool ninja texinfo
 ```
 ### Linux
 For example on Ubuntu 26.04:
@@ -47,6 +51,74 @@ cmake --build build
 ```cmd
 cmake -S . -B build -DCMAKE_PREFIX_PATH="%CD%/deps/build/destdir/usr/local"
 cmake --build build
+```
+
+### 2.1. macOS (Tahoe)
+
+> [!NOTE]
+> This is a Tahoe-specific native Apple Silicon Release build using AppleClang and a macOS 26.0 deployment target. It keeps Homebrew headers and libraries out of dependency discovery to avoid mixing them with the bundled dependencies. Xcode 27's libc++ headers no longer support targeting macOS 10.15.
+
+Use [AppleClang, the compiler toolchain shipped with Xcode](https://developer.apple.com/documentation/xcode-release-notes). If your shell sets `CC` or `CXX` to a Homebrew LLVM compiler, the commands below explicitly unset those variables.
+
+#### 2.1.1. Build The Project Dependencies
+
+Build the dependencies from the repository root:
+
+```bash
+env -u CC -u CXX -u CPPFLAGS -u CFLAGS -u CXXFLAGS \
+  cmake -S deps -B deps/build-macos-tahoe -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
+    -DCMAKE_C_COMPILER=/usr/bin/clang \
+    -DCMAKE_CXX_COMPILER=/usr/bin/clang++
+
+cmake --build deps/build-macos-tahoe --parallel 1
+```
+
+The dependency build is intentionally single-threaded; its external projects select their own parallelism.
+
+#### 2.1.2. Configure Build
+
+> [!NOTE]
+> `DEPS_PREFIX` points to the staged install prefix from the dependency build above. Passing it as `CMAKE_PREFIX_PATH` lets CMake find those dependencies, while `Boost_DIR` and `fmt_DIR` select package configs within that same prefix.
+
+Configure PrusaSlicer to use only the dependency prefix built above. Do not add `/opt/homebrew` to `CMAKE_PREFIX_PATH`. Use `-DCMAKE_BUILD_TYPE=Release` for a release bundle, or change it to `Debug` for a debug bundle:
+
+```bash
+DEPS_PREFIX="$PWD/deps/build-macos-tahoe/destdir/usr/local"
+
+env -u CC -u CXX -u CPPFLAGS -u CFLAGS -u CXXFLAGS \
+  cmake -S . -B build-macos-tahoe -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
+  -DCMAKE_PREFIX_PATH="$DEPS_PREFIX" \
+  -DBoost_DIR="$DEPS_PREFIX/lib/cmake/Boost-1.86.0" \
+  -Dfmt_DIR="$DEPS_PREFIX/lib/cmake/fmt" \
+  -DCMAKE_EXE_LINKER_FLAGS="-L/opt/homebrew/opt/libomp/lib"
+
+cmake --build build-macos-tahoe --parallel "$(sysctl -n hw.ncpu)"
+```
+
+#### 2.1.3. Build a macOS `.app` bundle
+
+> [!IMPORTANT]
+> The targets ad-hoc sign the app bundle after fixing up library paths so it can launch locally. They do not use a Developer ID certificate or notarize the app for distribution.
+
+Build the target matching the configured build type:
+
+```bash
+cmake --build build-macos-tahoe --target macos-release \
+  --parallel "$(sysctl -n hw.ncpu)"
+```
+
+Use `macos-debug` instead for a Debug build. For a multi-configuration generator, add the matching `--config Debug` or `--config Release`; for a single-configuration generator, `CMAKE_BUILD_TYPE` must match the target.
+
+The target creates the app bundle at `build-macos-tahoe/macos-release/PrusaSlicer.app`. For a Debug build, it is created at `build-macos-tahoe/macos-debug/PrusaSlicer.app`.
+
+The targets bundle non-system dynamic libraries and fix their load paths; macOS provides the system libraries and frameworks. Inspect the launcher dependencies with:
+
+```bash
+otool -L "$PWD/build-macos-tahoe/macos-release/PrusaSlicer.app/Contents/MacOS/PrusaSlicer"
 ```
 
 ## 3. Run tests (optional)
