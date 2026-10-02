@@ -141,8 +141,6 @@ private:
     wxMenuBar* m_menu_bar{nullptr};
     wxMenu* m_recent_project_menu{nullptr};
     wxMenuItem* m_recent_project_item{nullptr};
-    wxMenu* m_plugins_menu{nullptr};
-    wxMenuItem* m_plugins_item{nullptr};
     bool m_bypass{false};
 
     Biz::ListenerScope<Biz::IProjectsChangedListener, Biz::ProjectInteractor, MacOSNativeMenuBar>

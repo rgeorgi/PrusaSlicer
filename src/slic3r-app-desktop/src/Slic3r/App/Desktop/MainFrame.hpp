@@ -60,7 +60,6 @@ class MainFrame :
 {
 public:
     MainFrame(
-        Domain::Workbench& workbench,
         Biz::ProjectInteractor& project_interactor,
         Navigator& navigator,
         std::shared_ptr<ProjectSaver> project_saver
@@ -133,7 +132,6 @@ private:
 #endif
 
 private:
-    Domain::Workbench& m_workbench;
     Biz::ProjectInteractor& m_project_interactor;
     Biz::Preset::PresetInteractor& m_preset_interactor;
     std::unique_ptr<Platform::WX::WXRenderCanvas> m_canvas;
@@ -145,7 +143,9 @@ private:
 
     TabsBarMenus m_tabs_bar_menus;
     LeftBar* m_left_bar{nullptr};
+#ifdef __WXGTK__
     unsigned long m_dpi_signal_id{0}; //!< Only used on GTK, signal for notify::gtk-xft-dpi
+#endif
 
     wxAcceleratorTable m_accel_table;
     wxWindow* m_accel_table_window{nullptr};

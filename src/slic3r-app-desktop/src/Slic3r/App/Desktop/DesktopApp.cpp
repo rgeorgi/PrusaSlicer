@@ -402,7 +402,7 @@ bool DesktopApp::OnInit()
 
     m_project_saver = std::make_shared<ProjectSaver>(*m_project_interactor, *m_thumbnail_store);
 
-    m_main_frame = new MainFrame(m_workbench, *m_project_interactor, m_navigator, m_project_saver);
+    m_main_frame = new MainFrame(*m_project_interactor, m_navigator, m_project_saver);
     platform_services.app_instance_message_handler().init(m_main_frame->GetHandle());
     Platform::WX::WXRenderCanvas& canvas = m_main_frame->get_render_canvas();
     m_gl_context                         = canvas.release_context();
