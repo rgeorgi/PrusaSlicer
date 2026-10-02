@@ -81,22 +81,17 @@ void ProjectSettingsInteractor::restore_persisted_colors(
             return;
 
         const auto persisted_colors = m_color_load_callback(cc->selected_preset().printer.id);
-        if (!persisted_colors)
-            return;
 
         auto colors =
             cc->project_settings().items.opt("extruder_colour").get<std::vector<std::string>>();
         Domain::Preset::SelectedPresetConfigPack preset_config_pack(cc->selected_preset());
         colors.resize(preset_config_pack.filament_size());
 
-        const size_t count = std::min(colors.size(), persisted_colors->size());
-        for (size_t slot = 0; slot < count; ++slot) {
-            if (!(*persisted_colors)[slot].empty())
-                colors[slot] = (*persisted_colors)[slot];
-        }
-
         for (size_t slot = 0; slot < colors.size(); ++slot) {
-            if (colors[slot].empty())
+            if (persisted_colors && slot < persisted_colors->size()
+                && !(*persisted_colors)[slot].empty())
+                colors[slot] = (*persisted_colors)[slot];
+            else
                 colors[slot] = resolve_auto_color(project_id, config_container_id, slot);
         }
 
@@ -212,9 +207,17 @@ void ProjectSettingsInteractor::on_preset_selection_changed(
     Preset::PresetItemType type
 )
 {
-    if (type != Preset::PresetItemType::MaterialPreset)
-        return;
     if (project_id == Domain::INVALID_ID || config_container_id == Domain::INVALID_ID)
+        return;
+
+    if (type == Preset::PresetItemType::PrinterPreset) {
+        if (m_color_load_callback)
+            restore_persisted_colors(config_container_id);
+        else
+            load_and_reconcile(project_id, config_container_id);
+        return;
+    }
+    if (type != Preset::PresetItemType::MaterialPreset)
         return;
 
     load_and_reconcile(project_id, config_container_id);
